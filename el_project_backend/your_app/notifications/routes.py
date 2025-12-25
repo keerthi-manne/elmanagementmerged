@@ -1,0 +1,318 @@
+from flask import Blueprint, request, jsonify, make_response, Response
+from flask_jwt_extended import jwt_required, get_jwt_identity
+import json
+import time
+from your_app import mysql
+
+notifications_bp = Blueprint('notifications_bp', __name__)
+
+
+@notifications_bp.before_request
+def handle_preflight():
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+        return response
+
+
+def ensure_notification_table():
+    """Ensure the notification table exists."""
+    cur = mysql.connection.cursor()
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS notification (
+                NotificationID INT AUTO_INCREMENT PRIMARY KEY,
+                UserID VARCHAR(50) NOT NULL,
+                Message TEXT NOT NULL,
+                Type VARCHAR(50) DEFAULT 'info',
+                Data JSON,
+                Timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                Status VARCHAR(20) DEFAULT 'Unread',
+                INDEX idx_user_timestamp (UserID, Timestamp),
+                INDEX idx_status (Status)
+            )
+        """)
+        mysql.connection.commit()
+        print("✅ Notification table ensured")
+    except Exception as e:
+        print(f"❌ Error creating notification table: {e}")
+    finally:
+        cur.close()
+
+
+# Initialize table on first request
+# ensure_notification_table()  # Remove this - called in route instead
+
+
+def send_direct_notification(receiver_id, message, notification_type='info', extra_data=None):
+    """Insert a single notification row directly into DB."""
+    if extra_data is None:
+        extra_data = {}
+
+    cur = mysql.connection.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO notification (UserID, Message, Type, Data, Status)
+            VALUES (%s, %s, %s, %s, 'Unread')
+            """,
+            (receiver_id, message, notification_type, json.dumps(extra_data))
+        )
+        mysql.connection.commit()
+        print(f"🔔 Direct notification sent to {receiver_id}: {message}")
+    except Exception as e:
+        mysql.connection.rollback()
+        print(f"❌ Notification error: {e}")
+    finally:
+        cur.close()
+
+
+@notifications_bp.route('', methods=['POST'])
+@jwt_required()
+def send_notification():
+    data = request.json or {}
+    receiver_id = data.get('ReceiverID')
+    message = data.get('Message')
+    notification_type = data.get('Type', 'info')
+    extra_data = data.get('Data', {})
+
+    if not receiver_id or not message:
+        return jsonify({'error': 'ReceiverID and Message are required'}), 400
+
+    send_direct_notification(receiver_id, message, notification_type, extra_data)
+    return jsonify({'message': 'Notification sent successfully'}), 201
+
+
+@notifications_bp.route('/inbox', methods=['GET'])
+@jwt_required()
+def get_notifications():
+    """Return latest notifications for current user in a frontend‑friendly shape."""
+    # Ensure table exists
+    ensure_notification_table()
+    
+    user_id = get_jwt_identity()
+    cur = mysql.connection.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT NotificationID, UserID, Message, Type, Data, Timestamp, Status
+            FROM notification
+            WHERE UserID = %s
+            ORDER BY Timestamp DESC
+            LIMIT 50
+            """,
+            (user_id,)
+        )
+
+        notifications = []
+        for row in cur.fetchall():
+            try:
+                data = json.loads(row[4]) if row[4] else {}
+            except Exception:
+                data = {}
+
+            notifications.append({
+                'NotificationID': row[0],
+                'UserID': row[1],
+                'message': row[2],
+                'type': row[3] or 'info',
+                'timestamp': row[5].strftime('%Y-%m-%d %H:%M') if row[5] else None,
+                'projectId': data.get('projectId'),
+                'inviterId': data.get('inviterId'),
+                'projectName': data.get('projectName'),
+                'isRead': (row[6] == 'Read')
+            })
+
+        print("INBOX for", user_id, "=>", len(notifications), "rows")
+        return jsonify({'notifications': notifications}), 200
+    finally:
+        cur.close()
+
+
+@notifications_bp.route('/<int:notification_id>/read', methods=['POST'])
+@jwt_required()
+def mark_notification_read(notification_id):
+    user_id = get_jwt_identity()
+    cur = mysql.connection.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE notification
+            SET Status = 'Read'
+            WHERE NotificationID = %s AND UserID = %s
+            """,
+            (notification_id, user_id)
+        )
+
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Notification not found'}), 404
+
+        mysql.connection.commit()
+        return jsonify({'message': 'Notification marked as read'}), 200
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+
+
+@notifications_bp.route('/team-invite/<int:project_id>/approve', methods=['POST'])
+@jwt_required()
+def approve_team_invite(project_id):
+    current_user_id = get_jwt_identity()
+    cur = mysql.connection.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT InviterUserID
+            FROM TeamInvitations
+            WHERE ProjectID = %s AND InvitedUserID = %s AND Status = 'Pending'
+            """,
+            (project_id, current_user_id)
+        )
+        invite = cur.fetchone()
+
+        if not invite:
+            return jsonify({'error': 'No pending invitation found'}), 404
+
+        inviter_id = invite[0]
+
+        cur.execute(
+            "INSERT INTO TeamMember (ProjectID, UserID) VALUES (%s, %s)",
+            (project_id, current_user_id)
+        )
+
+        cur.execute(
+            """
+            UPDATE TeamInvitations
+            SET Status = 'Accepted'
+            WHERE ProjectID = %s AND InvitedUserID = %s
+            """,
+            (project_id, current_user_id)
+        )
+
+        cur.execute("SELECT Title FROM Project WHERE ProjectID = %s", (project_id,))
+        project_row = cur.fetchone()
+        project_name = project_row[0] if project_row else "Team Project"
+
+        send_direct_notification(
+            inviter_id,
+            f"🎉 {current_user_id} accepted your team invitation for '{project_name}'!",
+            'team_joined',
+            {'projectId': project_id, 'joinedUserId': current_user_id}
+        )
+
+        mysql.connection.commit()
+        print(f"✅ {current_user_id} joined project {project_id}")
+        return jsonify({'message': 'Successfully joined team!', 'ProjectID': project_id}), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        print(f"❌ Team approve error: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+
+
+@notifications_bp.route('/team-invite/<int:project_id>/reject', methods=['POST'])
+@jwt_required()
+def reject_team_invite(project_id):
+    current_user_id = get_jwt_identity()
+    cur = mysql.connection.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE TeamInvitations
+            SET Status = 'Rejected'
+            WHERE ProjectID = %s AND InvitedUserID = %s AND Status = 'Pending'
+            """,
+            (project_id, current_user_id)
+        )
+
+        if cur.rowcount == 0:
+            return jsonify({'error': 'No pending invitation found'}), 404
+
+        mysql.connection.commit()
+        print(f"❌ {current_user_id} rejected project {project_id}")
+        return jsonify({'message': 'Invitation rejected'}), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        print(f"❌ Team reject error: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+
+
+@notifications_bp.route('/sse', methods=['GET', 'OPTIONS'])
+def sse_notifications():
+    """Public SSE stream of unread notifications, filtered by user_id."""
+    user_id = request.args.get('user_id')
+    if not user_id:
+        # no user_id => only heartbeats
+        def hb():
+            while True:
+                yield 'data: {"type": "heartbeat"}\n\n'
+                time.sleep(10)
+        return Response(hb(), mimetype='text/event-stream')
+
+    def event_stream():
+        last_id = 0
+        while True:
+            try:
+                cur = mysql.connection.cursor()
+                cur.execute(
+                    """
+                    SELECT NotificationID, UserID, Message, Type, Data, Timestamp, Status
+                    FROM notification
+                    WHERE Status = 'Unread' AND UserID = %s AND NotificationID > %s
+                    ORDER BY Timestamp ASC
+                    LIMIT 5
+                    """,
+                    (user_id, last_id)
+                )
+                rows = cur.fetchall()
+                cur.close()
+
+                if rows:
+                    for row in rows:
+                        last_id = row[0]
+                        try:
+                            data = json.loads(row[4]) if row[4] else {}
+                        except Exception:
+                            data = {}
+
+                        notification = {
+                            'NotificationID': row[0],
+                            'UserID': row[1],
+                            'message': row[2],
+                            'type': row[3] or 'info',
+                            'timestamp': row[5].strftime('%Y-%m-%d %H:%M:%S') if row[5] else None,
+                            'projectId': data.get('projectId'),
+                            'inviterId': data.get('inviterId'),
+                            'projectName': data.get('projectName'),
+                            'isRead': (row[6] == 'Read')
+                        }
+                        yield f"data: {json.dumps(notification)}\n\n"
+                else:
+                    yield 'data: {"type": "heartbeat"}\n\n'
+
+            except Exception as e:
+                print(f"SSE error: {e}")
+                yield 'data: {"error": "Stream error"}\n\n'
+                break
+
+            time.sleep(2)
+
+    response = Response(event_stream(), mimetype='text/event-stream')
+    response.headers.update({
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Authorization,Content-Type',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Expose-Headers': '*'
+    })
+    return response

@@ -46,8 +46,9 @@ export const getProjectDetailsWithSubmissions = (token, projectId) => {
 };
 
 // ✅ FIXED: Use your existing /evaluations endpoint
+// ✅ CORRECTED: Matches backend route /faculty/evaluate/<project_id>
 export const submitEvaluation = (token, projectId, evalData) => {
-  return axios.post(`${API_BASE}/evaluations`, evalData, {
+  return axios.post(`${API_BASE}/faculty/evaluate/${projectId}`, evalData, {
     headers: { Authorization: `Bearer ${token}` }
   });
 };

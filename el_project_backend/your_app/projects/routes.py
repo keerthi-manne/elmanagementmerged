@@ -316,6 +316,28 @@ def get_project_details_with_submissions(project_id):
             'Status': row[5]
         }
 
+        # Get Mentor
+        cur.execute("""
+            SELECT u.Name, u.UserID 
+            FROM mentorassignment ma
+            JOIN user u ON ma.FacultyUserID = u.UserID
+            WHERE ma.ProjectID = %s
+        """, (project_id,))
+        mentor_row = cur.fetchone()
+        project['MentorName'] = mentor_row[0] if mentor_row else 'Not Assigned'
+        project['MentorID'] = mentor_row[1] if mentor_row else None
+
+        # Get Judge
+        cur.execute("""
+            SELECT u.Name, u.UserID 
+            FROM judgeassignment ja
+            JOIN user u ON ja.FacultyUserID = u.UserID
+            WHERE ja.ProjectID = %s
+        """, (project_id,))
+        judge_row = cur.fetchone()
+        project['JudgeName'] = judge_row[0] if judge_row else 'Not Assigned'
+        project['JudgeID'] = judge_row[1] if judge_row else None
+
         # submissions
         submissions = []
         try:

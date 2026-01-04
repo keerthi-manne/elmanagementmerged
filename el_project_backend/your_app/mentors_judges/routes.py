@@ -116,12 +116,17 @@ def my_mentor_assignments():
     current_user_id = get_jwt_identity()
     cur = mysql.connection.cursor()
     cur.execute(
-        "SELECT ma.ProjectID, p.Status FROM mentorassignment ma JOIN Project p ON ma.ProjectID = p.ProjectID WHERE ma.FacultyUserID=%s",
+        """
+        SELECT ma.ProjectID, p.Title, p.Status 
+        FROM mentorassignment ma 
+        JOIN Project p ON ma.ProjectID = p.ProjectID 
+        WHERE ma.FacultyUserID=%s
+        """,
         (current_user_id,)
     )
     rows = cur.fetchall()
     cur.close()
-    assignments = [{'ProjectID': r[0], 'Status': r[1]} for r in rows]
+    assignments = [{'ProjectID': r[0], 'Title': r[1], 'Status': r[2]} for r in rows]
     return jsonify(assignments), 200
 
 @mentors_judges_bp.route('/judges/my', methods=['GET'])
@@ -131,12 +136,17 @@ def my_judge_assignments():
     current_user_id = get_jwt_identity()
     cur = mysql.connection.cursor()
     cur.execute(
-        "SELECT ProjectID, SelectionType FROM judgeassignment WHERE FacultyUserID=%s",
+        """
+        SELECT ja.ProjectID, p.Title, p.Status, ja.SelectionType 
+        FROM judgeassignment ja 
+        JOIN Project p ON ja.ProjectID = p.ProjectID 
+        WHERE ja.FacultyUserID=%s
+        """,
         (current_user_id,)
     )
     rows = cur.fetchall()
     cur.close()
-    assignments = [{'ProjectID': r[0], 'SelectionType': r[1]} for r in rows]
+    assignments = [{'ProjectID': r[0], 'Title': r[1], 'Status': r[2], 'SelectionType': r[3]} for r in rows]
     return jsonify(assignments), 200
 
 @mentors_judges_bp.route('/available_projects', methods=['GET'])
@@ -217,17 +227,6 @@ def submit_evaluation(project_id):
     feedback = data.get('Feedback', '')
     phase = data.get('Phase', 'Phase1')
     student_user_id = data.get('StudentUserID')
-
-    # Validate score
-    if score is None:
-        return jsonify({'error': 'Score is required'}), 400
-    
-    try:
-        score_val = float(score)
-        if not 0 <= score_val <= 10:
-            return jsonify({'error': 'Score must be between 0 and 10'}), 400
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Score must be a valid number'}), 400
     
     if not student_user_id:
         return jsonify({'error': 'StudentUserID is required'}), 400
@@ -237,59 +236,72 @@ def submit_evaluation(project_id):
 
     cur = mysql.connection.cursor()
     try:
-        # 1. Must be JUDGE for project ✅
-        cur.execute("""
-            SELECT 1 FROM judgeassignment 
-            WHERE FacultyUserID = %s AND ProjectID = %s
-        """, (current_user_id, project_id))
-        if not cur.fetchone():
-            return jsonify({'error': 'Must be JUDGE for this project'}), 403
+        # 1. Determine Role (Judge or Mentor)
+        evaluation_type = None
+        
+        # Check Judge
+        cur.execute("SELECT 1 FROM judgeassignment WHERE FacultyUserID = %s AND ProjectID = %s", (current_user_id, project_id))
+        is_judge = cur.fetchone()
+        
+        # Check Mentor
+        cur.execute("SELECT 1 FROM mentorassignment WHERE FacultyUserID = %s AND ProjectID = %s", (current_user_id, project_id))
+        is_mentor = cur.fetchone()
+        
+        if is_judge:
+            evaluation_type = 'Judge'
+        elif is_mentor:
+            evaluation_type = 'Mentor'
+        else:
+            return jsonify({'error': 'Must be assigned as Mentor or Judge for this project'}), 403
 
-        # 2. FIXED: Student on project team? (NO Team table join) ✅
-        cur.execute("""
-            SELECT 1 FROM teammember tm
-            WHERE tm.UserID = %s AND tm.ProjectID = %s
-        """, (student_user_id, project_id))
+        # 2. Score Validation based on Role
+        score_val = None
+        if evaluation_type == 'Judge':
+            if score is None or score == '':
+                return jsonify({'error': 'Score is required for Judges'}), 400
+            try:
+                score_val = float(score)
+                if not 0 <= score_val <= 10:
+                    return jsonify({'error': 'Score must be between 0 and 10'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Score must be a valid number'}), 400
+        else:
+            # Mentors cannot score
+            score_val = None 
+
+        # 3. Student on project check
+        cur.execute("SELECT 1 FROM teammember tm WHERE tm.UserID = %s AND tm.ProjectID = %s", (student_user_id, project_id))
         if not cur.fetchone():
             return jsonify({'error': f'Student {student_user_id} not on project team'}), 403
 
-        # 3. Sequential phase check (Phase2 only after Phase1, etc.)
-        if phase == 'Phase2':
-            cur.execute("""
-                SELECT 1 FROM evaluation 
-                WHERE ProjectID = %s AND FacultyUserID = %s AND StudentUserID = %s AND Phase = 'Phase1'
-            """, (project_id, current_user_id, student_user_id))
-            if not cur.fetchone():
-                return jsonify({'error': 'Must score Phase1 for this student first'}), 400
-        
-        elif phase == 'Phase3':
-            cur.execute("""
-                SELECT 1 FROM evaluation 
-                WHERE ProjectID = %s AND FacultyUserID = %s AND StudentUserID = %s AND Phase IN ('Phase1','Phase2')
-            """, (project_id, current_user_id, student_user_id))
-            if cur.rowcount < 2:
-                return jsonify({'error': 'Must score Phase1 AND Phase2 first'}), 400
-
-        # 4. No duplicate evaluation ✅
+        # 4. Check for existing evaluation (Update or Error?)
+        # Let's check duplicate for same phase/type
         cur.execute("""
             SELECT 1 FROM evaluation 
             WHERE ProjectID = %s AND FacultyUserID = %s AND StudentUserID = %s AND Phase = %s
         """, (project_id, current_user_id, student_user_id, phase))
         if cur.fetchone():
-            return jsonify({'error': f'Already scored {student_user_id} in {phase}'}), 400
+            # Optional: Allow update? For now, return error as per original logic
+            return jsonify({'error': f'Already evaluated {student_user_id} in {phase}'}), 400
 
-        # 5. INSERT evaluation ✅
+        # 5. INSERT
         cur.execute("""
-            INSERT INTO evaluation (ProjectID, FacultyUserID, EvaluationType, Score, Feedback, Phase, StudentUserID)
-            VALUES (%s, %s, 'Judge', %s, %s, %s, %s)
-        """, (project_id, current_user_id, score_val, feedback, phase, student_user_id))
+            INSERT INTO evaluation (ProjectID, FacultyUserID, EvaluationType, Score, Feedback, Phase, StudentUserID, EvaluatedAt)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+        """, (project_id, current_user_id, evaluation_type, score_val, feedback, phase, student_user_id))
 
         mysql.connection.commit()
+        
+        msg = f"Evaluation submitted ({evaluation_type})"
+        if evaluation_type == 'Judge':
+            msg += f" with Score {score_val}"
+            
         return jsonify({
-            'message': f'{student_user_id} {phase} evaluation submitted successfully!',
+            'message': msg,
             'score': score_val,
             'phase': phase
         }), 201
+
         
     except Exception as e:
         mysql.connection.rollback()

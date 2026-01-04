@@ -66,7 +66,7 @@ function StudentDashboard() {
   }, [authToken, authUserId]);
 
   // Load my projects
-  
+
   const loadMyProjects = useCallback(async () => {
     if (!authToken || !currentUserId) {
       setLoading(false);
@@ -356,9 +356,8 @@ function StudentDashboard() {
             padding: '0.75rem 1rem',
             borderRadius: '6px',
             marginBottom: '1.5rem',
-            borderLeft: `4px solid ${
-              message.includes('✅') ? '#28a745' : '#dc3545'
-            }`,
+            borderLeft: `4px solid ${message.includes('✅') ? '#28a745' : '#dc3545'
+              }`,
             fontWeight: 500
           }}
         >
@@ -459,209 +458,209 @@ function StudentDashboard() {
           </div>
         )}
       </section>
-      
+
       {/* CREATE TEAM SECTION - only when not in any team */}
-{myProjects.length === 0 && (
-  !showCreateTeam ? (
-    <div
-      style={{
-        padding: '1.5rem',
-        background: '#e3f2fd',
-        borderRadius: '12px',
-        borderLeft: '4px solid #2196f3',
-        marginBottom: '2rem'
-      }}
-    >
-      <h3 style={{ margin: '0 0 1rem 0', color: '#1976d2' }}>
-        👥 Create New Team
-      </h3>
-      <p style={{ color: '#1565c0', margin: '0 0 1rem 0' }}>
-        No projects? Create a team and invite classmates!
-      </p>
-      <button
-        onClick={() => setShowCreateTeam(true)}
-        style={{
-          padding: '0.75rem 1.5rem',
-          background: '#2196f3',
-          color: 'white',
-          border: 'none',
-          borderRadius: '8px',
-          fontWeight: 600,
-          cursor: 'pointer',
-          fontSize: '1rem'
-        }}
-      >
-        🚀 Create Team Now
-      </button>
-    </div>
-  ) : (
-    <div
-      style={{
-        padding: '2rem',
-        background: 'white',
-        borderRadius: '12px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-        marginBottom: '2rem'
-      }}
-    >
-      <h3 style={{ margin: '0 0 1.5rem 0', color: '#333' }}>
-        👥 Create New Team
-      </h3>
-      <form onSubmit={handleCreateTeam}>
-        <div
-          style={{
-            display: 'grid',
-            gap: '1rem',
-            gridTemplateColumns: '1fr 1fr'
-          }}
-        >
-          <div>
-            <label
+      {myProjects.length === 0 && (
+        !showCreateTeam ? (
+          <div
+            style={{
+              padding: '1.5rem',
+              background: '#e3f2fd',
+              borderRadius: '12px',
+              borderLeft: '4px solid #2196f3',
+              marginBottom: '2rem'
+            }}
+          >
+            <h3 style={{ margin: '0 0 1rem 0', color: '#1976d2' }}>
+              👥 Create New Team
+            </h3>
+            <p style={{ color: '#1565c0', margin: '0 0 1rem 0' }}>
+              No projects? Create a team and invite classmates!
+            </p>
+            <button
+              onClick={() => setShowCreateTeam(true)}
               style={{
-                display: 'block',
-                marginBottom: '0.5rem',
-                fontWeight: 600
-              }}
-            >
-              Project Name *
-            </label>
-            <input
-              type="text"
-              placeholder="e.g., AI-Powered Slum Road Planner"
-              value={teamForm.projectName}
-              onChange={(e) =>
-                setTeamForm({ ...teamForm, projectName: e.target.value })
-              }
-              style={{
-                width: '100%',
-                padding: '0.875rem',
-                border: '2px solid #e9ecef',
+                padding: '0.75rem 1.5rem',
+                background: '#2196f3',
+                color: 'white',
+                border: 'none',
                 borderRadius: '8px',
+                fontWeight: 600,
+                cursor: 'pointer',
                 fontSize: '1rem'
               }}
-              required
-            />
-          </div>
-          <div>
-            <label
-              style={{
-                display: 'block',
-                marginBottom: '0.5rem',
-                fontWeight: 600
-              }}
             >
-              Theme *
-            </label>
-            <select
-              value={teamForm.themeId}
-              onChange={(e) =>
-                setTeamForm({ ...teamForm, themeId: e.target.value })
-              }
-              style={{
-                width: '100%',
-                padding: '0.875rem',
-                border: '2px solid #e9ecef',
-                borderRadius: '8px',
-                fontSize: '1rem'
-              }}
-              required
-            >
-              <option value="">Select Theme</option>
-              {themes.map((theme) => (
-                <option key={theme.ThemeID} value={theme.ThemeID}>
-                  {theme.ThemeName}
-                </option>
-              ))}
-            </select>
+              🚀 Create Team Now
+            </button>
           </div>
-        </div>
-        <div style={{ marginTop: '1rem' }}>
-          <label
+        ) : (
+          <div
             style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: 600
+              padding: '2rem',
+              background: 'white',
+              borderRadius: '12px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+              marginBottom: '2rem'
             }}
           >
-            Teammate USNs (optional, comma separated)
-          </label>
-          <input
-            type="text"
-            placeholder="1rv23is072,1rv23is073"
-            value={teamForm.teammateUserIds}
-            onChange={(e) =>
-              setTeamForm({
-                ...teamForm,
-                teammateUserIds: e.target.value
-              })
-            }
-            style={{
-              width: '100%',
-              padding: '0.875rem',
-              border: '2px solid #e9ecef',
-              borderRadius: '8px',
-              fontSize: '1rem'
-            }}
-          />
-          <small style={{ color: '#666', fontSize: '0.85rem' }}>
-            They can accept the invite from their dashboard.
-          </small>
-        </div>
-        <div
-          style={{
-            marginTop: '1.5rem',
-            display: 'flex',
-            gap: '1rem'
-          }}
-        >
-          <button
-            type="submit"
-            disabled={
-              creatingTeam ||
-              !teamForm.projectName ||
-              !teamForm.themeId
-            }
-            style={{
-              flex: 1,
-              padding: '1rem 2rem',
-              background: '#28a745',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontWeight: 700,
-              fontSize: '1rem',
-              cursor: creatingTeam ? 'not-allowed' : 'pointer'
-            }}
-          >
-            {creatingTeam ? 'Creating...' : '🚀 Create Team'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowCreateTeam(false);
-              setTeamForm({
-                projectName: '',
-                themeId: '',
-                teammateUserIds: ''
-              });
-            }}
-            style={{
-              padding: '1rem 2rem',
-              background: '#6c757d',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontWeight: 500,
-              cursor: 'pointer'
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-)}
+            <h3 style={{ margin: '0 0 1.5rem 0', color: '#333' }}>
+              👥 Create New Team
+            </h3>
+            <form onSubmit={handleCreateTeam}>
+              <div
+                style={{
+                  display: 'grid',
+                  gap: '1rem',
+                  gridTemplateColumns: '1fr 1fr'
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      display: 'block',
+                      marginBottom: '0.5rem',
+                      fontWeight: 600
+                    }}
+                  >
+                    Project Name *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g., AI-Powered Slum Road Planner"
+                    value={teamForm.projectName}
+                    onChange={(e) =>
+                      setTeamForm({ ...teamForm, projectName: e.target.value })
+                    }
+                    style={{
+                      width: '100%',
+                      padding: '0.875rem',
+                      border: '2px solid #e9ecef',
+                      borderRadius: '8px',
+                      fontSize: '1rem'
+                    }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      display: 'block',
+                      marginBottom: '0.5rem',
+                      fontWeight: 600
+                    }}
+                  >
+                    Theme *
+                  </label>
+                  <select
+                    value={teamForm.themeId}
+                    onChange={(e) =>
+                      setTeamForm({ ...teamForm, themeId: e.target.value })
+                    }
+                    style={{
+                      width: '100%',
+                      padding: '0.875rem',
+                      border: '2px solid #e9ecef',
+                      borderRadius: '8px',
+                      fontSize: '1rem'
+                    }}
+                    required
+                  >
+                    <option value="">Select Theme</option>
+                    {themes.map((theme) => (
+                      <option key={theme.ThemeID} value={theme.ThemeID}>
+                        {theme.ThemeName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginTop: '1rem' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    marginBottom: '0.5rem',
+                    fontWeight: 600
+                  }}
+                >
+                  Teammate USNs (optional, comma separated)
+                </label>
+                <input
+                  type="text"
+                  placeholder="1rv23is072,1rv23is073"
+                  value={teamForm.teammateUserIds}
+                  onChange={(e) =>
+                    setTeamForm({
+                      ...teamForm,
+                      teammateUserIds: e.target.value
+                    })
+                  }
+                  style={{
+                    width: '100%',
+                    padding: '0.875rem',
+                    border: '2px solid #e9ecef',
+                    borderRadius: '8px',
+                    fontSize: '1rem'
+                  }}
+                />
+                <small style={{ color: '#666', fontSize: '0.85rem' }}>
+                  They can accept the invite from their dashboard.
+                </small>
+              </div>
+              <div
+                style={{
+                  marginTop: '1.5rem',
+                  display: 'flex',
+                  gap: '1rem'
+                }}
+              >
+                <button
+                  type="submit"
+                  disabled={
+                    creatingTeam ||
+                    !teamForm.projectName ||
+                    !teamForm.themeId
+                  }
+                  style={{
+                    flex: 1,
+                    padding: '1rem 2rem',
+                    background: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: 700,
+                    fontSize: '1rem',
+                    cursor: creatingTeam ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {creatingTeam ? 'Creating...' : '🚀 Create Team'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateTeam(false);
+                    setTeamForm({
+                      projectName: '',
+                      themeId: '',
+                      teammateUserIds: ''
+                    });
+                  }}
+                  style={{
+                    padding: '1rem 2rem',
+                    background: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )
+      )}
 
       {/* Your Projects */}
       <section>
@@ -762,8 +761,8 @@ function StudentDashboard() {
                       project.Status === 'Approved'
                         ? '#28a745'
                         : project.Status === 'Rejected'
-                        ? '#dc3545'
-                        : '#ffc107',
+                          ? '#dc3545'
+                          : '#ffc107',
                     color: 'white',
                     borderRadius: '20px',
                     fontSize: '0.8rem',
@@ -838,6 +837,33 @@ function StudentDashboard() {
             >
               ← Back to Projects
             </button>
+          </div>
+
+          {/* MENTOR & JUDGE INFO */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
+            <div style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', borderLeft: '4px solid #667eea', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              <h4 style={{ margin: '0 0 0.5rem 0', color: '#667eea' }}>🎓 Assigned Mentor</h4>
+              <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#333' }}>
+                {selectedProject.MentorName || 'Not Assigned'}
+              </div>
+              {selectedProject.MentorName && (
+                <div style={{ fontSize: '0.9rem', color: '#666', marginTop: '0.25rem' }}>
+                  ID: {selectedProject.MentorID}
+                </div>
+              )}
+            </div>
+
+            <div style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', borderLeft: '4px solid #e83e8c', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              <h4 style={{ margin: '0 0 0.5rem 0', color: '#e83e8c' }}>⚖️ Assigned Judge</h4>
+              <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#333' }}>
+                {selectedProject.JudgeName || 'Not Assigned'}
+              </div>
+              {selectedProject.JudgeName && (
+                <div style={{ fontSize: '0.9rem', color: '#666', marginTop: '0.25rem' }}>
+                  ID: {selectedProject.JudgeID}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* TEAM MEMBERS */}
@@ -1139,8 +1165,8 @@ function StudentDashboard() {
                             ev.Score >= 7
                               ? '#28a745'
                               : ev.Score >= 5
-                              ? '#ffc107'
-                              : '#dc3545'
+                                ? '#ffc107'
+                                : '#dc3545'
                         }}
                       >
                         {ev.Score}/10
@@ -1171,8 +1197,9 @@ function StudentDashboard() {
             </div>
           )}
         </section>
-      )}
-    </div>
+      )
+      }
+    </div >
   );
 }
 

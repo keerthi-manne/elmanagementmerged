@@ -718,6 +718,33 @@ def get_detailed_faculty():
     finally:
         cur.close()
 
+# ✅ NEW: Unassign Faculty Manual Undo
+@admin_bp.route('/unassign_faculty_theme', methods=['POST'])
+@jwt_required()
+@roles_required('Admin')
+def unassign_faculty_theme():
+    cur = mysql.connection.cursor()
+    try:
+        data = request.json
+        faculty_id = data.get('FacultyUserID')
+        
+        if not faculty_id:
+            return jsonify({'error': 'FacultyUserID is required'}), 400
+            
+        cur.execute("DELETE FROM FacultyTheme WHERE FacultyUserID = %s", (faculty_id,))
+        mysql.connection.commit()
+        
+        if cur.rowcount == 0:
+             return jsonify({'message': 'Faculty was not assigned to any theme.'}), 200
+             
+        return jsonify({'message': 'Faculty unassigned successfully.'}), 200
+        
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+
 # ✅ NEW: Plagiarism Detection for Submissions
 @admin_bp.route('/plagiarism/check', methods=['POST'])
 @jwt_required()
@@ -744,7 +771,7 @@ def check_plagiarism():
         # Get target submission
         cur.execute("""
             SELECT s.SubmissionID, s.SubmissionContent, p.Title, p.ProjectID
-            FROM submission s
+            FROM projectsubmission s
             JOIN Project p ON s.ProjectID = p.ProjectID
             WHERE s.SubmissionID = %s
         """, (submission_id,))
@@ -791,13 +818,13 @@ def check_plagiarism():
         if content.startswith('http://') or content.startswith('https://'):
             target_text = extract_text_from_url(content)
         
-        # Get all other submissions for comparison
+        # Get all other submissions for comparison (Exclude submissions from SAME PROJECT)
         cur.execute("""
             SELECT s.SubmissionID, s.SubmissionContent, p.Title, p.ProjectID
-            FROM submission s
+            FROM projectsubmission s
             JOIN Project p ON s.ProjectID = p.ProjectID
-            WHERE s.SubmissionID != %s AND s.SubmissionContent IS NOT NULL AND s.SubmissionContent != ''
-        """, (submission_id,))
+            WHERE s.ProjectID != %s AND s.SubmissionContent IS NOT NULL AND s.SubmissionContent != ''
+        """, (project_id,))
         all_submissions = cur.fetchall()
         
         if not all_submissions:
@@ -899,47 +926,6 @@ def check_plagiarism():
     finally:
         cur.close()
 
-# ✅ NEW: Get All Submissions for Plagiarism Check
-@admin_bp.route('/submissions/all', methods=['GET'])
-@jwt_required()
-@roles_required('Admin')
-def get_all_submissions():
-    """Get all submissions with project details for plagiarism checking"""
-    cur = mysql.connection.cursor()
-    try:
-        cur.execute("""
-            SELECT 
-                s.SubmissionID,
-                s.SubmissionContent,
-                s.SubmittedAt,
-                p.ProjectID,
-                p.Title as ProjectTitle,
-                t.ThemeName
-            FROM submission s
-            JOIN Project p ON s.ProjectID = p.ProjectID
-            JOIN Theme t ON p.ThemeID = t.ThemeID
-            WHERE s.SubmissionContent IS NOT NULL AND s.SubmissionContent != ''
-            ORDER BY s.SubmittedAt DESC
-        """)
-        rows = cur.fetchall()
-        
-        submissions = [
-            {
-                'submission_id': row[0],
-                'content': row[1][:100] + '...' if len(row[1]) > 100 else row[1],
-                'full_content': row[1],
-                'submitted_at': row[2].strftime('%Y-%m-%d %H:%M') if row[2] else 'N/A',
-                'project_id': row[3],
-                'project_title': row[4],
-                'theme': row[5],
-                'is_url': row[1].startswith('http://') or row[1].startswith('https://') if row[1] else False
-            }
-            for row in rows
-        ]
-        
-        return jsonify({'submissions': submissions, 'total': len(submissions)}), 200
-    finally:
-        cur.close()
 
 # ✅ NEW: Insights & Recommendations (Quick Win Feature)
 @admin_bp.route('/insights', methods=['GET'])
@@ -966,7 +952,7 @@ def get_insights():
                 AVG(e.Score) as AvgScore
             FROM Project p
             JOIN Theme t ON p.ThemeID = t.ThemeID
-            LEFT JOIN submission s ON p.ProjectID = s.ProjectID
+            LEFT JOIN projectsubmission s ON p.ProjectID = s.ProjectID
             LEFT JOIN evaluation e ON p.ProjectID = e.ProjectID
             LEFT JOIN TeamMember tm ON p.ProjectID = tm.ProjectID
             GROUP BY p.ProjectID, p.Title, t.ThemeName, p.Status
@@ -976,10 +962,14 @@ def get_insights():
         project_health = []
         for row in projects:
             # Calculate health score (0-100)
+            submission_count = float(row[4])
+            evaluation_count = float(row[5])
+            avg_score = float(row[7]) if row[7] is not None else 0.0
+            
             health_score = 0
-            health_score += min((row[4] / 3) * 30, 30)  # Submissions (max 30 points)
-            health_score += min((row[5] / 10) * 30, 30)  # Evaluations (max 30 points)
-            health_score += min((row[7] or 0) * 4, 40)  # Avg score (max 40 points)
+            health_score += min((submission_count / 3) * 30, 30)  # Submissions (max 30 points)
+            health_score += min((evaluation_count / 10) * 30, 30)  # Evaluations (max 30 points)
+            health_score += min(avg_score * 4, 40)  # Avg score (max 40 points)
             
             status = 'HEALTHY' if health_score > 70 else 'AT_RISK' if health_score > 40 else 'CRITICAL'
             color = 'success' if health_score > 70 else 'warning' if health_score > 40 else 'error'
@@ -1062,12 +1052,12 @@ def get_insights():
         # 5. Faculty Performance
         cur.execute("""
             SELECT 
-                u.UserID,
-                u.Name,
+                u.UserID, 
+                u.Name, 
                 COUNT(DISTINCT ma.ProjectID) as MentorCount,
                 AVG(
-                    (SELECT AVG(e.Score)
-                     FROM evaluation e
+                    (SELECT AVG(e.Score) 
+                     FROM evaluation e 
                      JOIN TeamMember tm ON e.StudentUserID = tm.UserID
                      WHERE tm.ProjectID = ma.ProjectID)
                 ) as AvgMentorScore
@@ -1075,43 +1065,79 @@ def get_insights():
             JOIN Faculty f ON u.UserID = f.UserID
             LEFT JOIN mentorassignment ma ON u.UserID = ma.FacultyUserID
             GROUP BY u.UserID, u.Name
-            HAVING MentorCount > 0
-            ORDER BY AvgMentorScore DESC
-            LIMIT 10
+            ORDER BY MentorCount DESC
+            LIMIT 5
         """)
-        faculty_performance = [
+        faculty_perf = [
             {
-                'faculty_id': row[0],
                 'name': row[1],
                 'mentor_count': row[2],
                 'avg_mentee_score': round(float(row[3]), 2) if row[3] else 0
             }
             for row in cur.fetchall()
         ]
-        insights['faculty_performance'] = faculty_performance
-        
+        insights['faculty_performance'] = faculty_perf
+
         # 6. Completion Rate
         cur.execute("""
             SELECT 
-                COUNT(*) as TotalProjects,
-                SUM(CASE WHEN Status = 'Approved' THEN 1 ELSE 0 END) as ApprovedProjects,
-                SUM(CASE WHEN Status = 'Rejected' THEN 1 ELSE 0 END) as RejectedProjects,
-                SUM(CASE WHEN Status = 'Pending' THEN 1 ELSE 0 END) as PendingProjects
+                COUNT(*) as Total,
+                SUM(CASE WHEN Status = 'Approved' THEN 1 ELSE 0 END) as Approved
             FROM Project
         """)
-        row = cur.fetchone()
-        total = row[0]
+        stats = cur.fetchone()
+        total = stats[0] or 0
+        approved = int(stats[1]) if stats[1] else 0
+        rate = round((approved / total * 100), 1) if total > 0 else 0
+        
         insights['completion_rate'] = {
             'total_projects': total,
-            'approved': row[1],
-            'rejected': row[2],
-            'pending': row[3],
-            'approval_rate': round((row[1] / total) * 100, 1) if total > 0 else 0,
-            'completion_percentage': round(((row[1] + row[2]) / total) * 100, 1) if total > 0 else 0
+            'approved': approved,
+            'approval_rate': rate
         }
-        
+
         return jsonify(insights), 200
-        
+
+    except Exception as e:
+        print(f"❌ Insights Error: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+
+@admin_bp.route('/submissions/all', methods=['GET'])
+@jwt_required()
+@roles_required('Admin')
+def get_all_submissions():
+    """Get all submissions for plagiarism check dropdown"""
+    cur = mysql.connection.cursor()
+    try:
+        cur.execute("""
+            SELECT 
+                s.SubmissionID,
+                s.ProjectID,
+                p.Title,
+                s.SubmissionType,
+                s.SubmissionContent,
+                s.SubmittedAt,
+                u.Name
+            FROM projectsubmission s
+            JOIN Project p ON s.ProjectID = p.ProjectID
+            JOIN User u ON s.UserID = u.UserID
+            ORDER BY s.SubmittedAt DESC
+            LIMIT 50
+        """)
+        submissions = []
+        for row in cur.fetchall():
+            submissions.append({
+                'submission_id': row[0],
+                'project_id': row[1],
+                'project_title': row[2],
+                'is_url': row[3] == 'Link',
+                'content': row[4],
+                'submitted_at': str(row[5]),
+                'student_name': row[6]
+            })
+        return jsonify({'submissions': submissions}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:

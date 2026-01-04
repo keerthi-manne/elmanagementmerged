@@ -146,11 +146,11 @@ function FacultyDashboard() {
 
   const handleSubmitEval = async (e) => {
     e.preventDefault();
-    if (!selectedStudent || !evalData.score) return;
+    if (!selectedStudent) return; // Removed '!evalData.score' check to allow Mentors (Feedback only)
 
     try {
       await submitEvaluation(authToken, selectedProject.ProjectID, {
-        Score: parseFloat(evalData.score),
+        Score: evalData.score,
         Feedback: evalData.feedback,
         Phase: evalData.phase,
         StudentUserID: selectedStudent.UserID,
@@ -259,10 +259,77 @@ function FacultyDashboard() {
         </div>
       </div>
 
+      {/* Your Assignments */}
+      <div className="grid grid-2" style={{ marginBottom: 'var(--space-xl)' }}>
+        {/* Mentor Assignments */}
+        <div className="glass-card" style={{ padding: 'var(--space-xl)' }}>
+          <h3 style={{ marginBottom: 'var(--space-lg)', color: 'var(--color-text)' }}>
+            Your Mentor Assignments
+          </h3>
+          {mentorAssignments.length === 0 ? (
+            <p style={{ color: 'var(--color-text-dim)' }}>No mentor assignments yet</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+              {mentorAssignments.map(a => (
+                <div
+                  key={a.ProjectID}
+                  onClick={() => handleViewDetails(a.ProjectID)}
+                  style={{
+                    padding: 'var(--space-md)',
+                    background: 'var(--color-surface)',
+                    borderRadius: 'var(--radius-md)',
+                    cursor: 'pointer',
+                    borderLeft: '4px solid var(--color-success)',
+                    transition: 'transform 0.2s',
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.transform = 'translateX(5px)'}
+                  onMouseOut={(e) => e.currentTarget.style.transform = 'translateX(0)'}
+                >
+                  <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>{a.Title}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-dim)' }}>ID: {a.ProjectID} | Status: {a.Status}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Judge Assignments */}
+        <div className="glass-card" style={{ padding: 'var(--space-xl)' }}>
+          <h3 style={{ marginBottom: 'var(--space-lg)', color: 'var(--color-text)' }}>
+            Your Judge Assignments
+          </h3>
+          {judgeAssignments.length === 0 ? (
+            <p style={{ color: 'var(--color-text-dim)' }}>No judge assignments yet</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+              {judgeAssignments.map(a => (
+                <div
+                  key={a.ProjectID}
+                  onClick={() => handleViewDetails(a.ProjectID)}
+                  style={{
+                    padding: 'var(--space-md)',
+                    background: 'var(--color-surface)',
+                    borderRadius: 'var(--radius-md)',
+                    cursor: 'pointer',
+                    borderLeft: '4px solid var(--color-info)',
+                    transition: 'transform 0.2s',
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.transform = 'translateX(5px)'}
+                  onMouseOut={(e) => e.currentTarget.style.transform = 'translateX(0)'}
+                >
+                  <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>{a.Title}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-dim)' }}>ID: {a.ProjectID} | Status: {a.Status}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Projects List */}
       <div className="glass-card" style={{ padding: 'var(--space-xl)', marginBottom: 'var(--space-xl)' }}>
         <h3 style={{ marginBottom: 'var(--space-lg)', color: 'var(--color-text)' }}>
-          Projects in Your Theme
+          Projects in {myTheme ? <span style={{ color: 'var(--color-accent)' }}>{myTheme.ThemeName}</span> : 'Your Theme'}
         </h3>
         {availableProjects.length === 0 ? (
           <p style={{ color: 'var(--color-text-dim)' }}>No projects available</p>
@@ -276,12 +343,29 @@ function FacultyDashboard() {
                 <p style={{ color: 'var(--color-text-dim)', fontSize: '0.875rem', marginBottom: 'var(--space-md)' }}>
                   ID: {p.ProjectID} | Status: {p.Status}
                 </p>
+                {/* Status Indicators */}
+                <div style={{ display: 'flex', gap: 'var(--space-xs)', marginBottom: 'var(--space-sm)' }}>
+                  {mentorAssignments.some(a => a.ProjectID === p.ProjectID) && (
+                    <span className="badge badge-success">Your Mentee</span>
+                  )}
+                  {judgeAssignments.some(a => a.ProjectID === p.ProjectID) && (
+                    <span className="badge badge-info">Your Judge</span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-                  <button onClick={() => handleMentor(p.ProjectID)} className="btn btn-success">
-                    Be Mentor
+                  <button
+                    onClick={() => handleMentor(p.ProjectID)}
+                    disabled={mentorAssignments.some(a => a.ProjectID === p.ProjectID) || judgeAssignments.some(a => a.ProjectID === p.ProjectID)}
+                    className="btn btn-success"
+                  >
+                    {mentorAssignments.some(a => a.ProjectID === p.ProjectID) ? 'Already Mentor' : 'Be Mentor'}
                   </button>
-                  <button onClick={() => handleJudge(p.ProjectID)} className="btn btn-primary">
-                    Be Judge
+                  <button
+                    onClick={() => handleJudge(p.ProjectID)}
+                    disabled={judgeAssignments.some(a => a.ProjectID === p.ProjectID) || mentorAssignments.some(a => a.ProjectID === p.ProjectID)}
+                    className="btn btn-primary"
+                  >
+                    {judgeAssignments.some(a => a.ProjectID === p.ProjectID) ? 'Already Judge' : 'Be Judge'}
                   </button>
                   <button onClick={() => handleViewDetails(p.ProjectID)} className="btn btn-secondary">
                     View Details
@@ -404,20 +488,23 @@ function FacultyDashboard() {
                   <option value="Phase3">Phase 3</option>
                 </select>
               </div>
-              <div style={{ marginBottom: 'var(--space-md)' }}>
-                <label style={{ display: 'block', marginBottom: 'var(--space-xs)', color: 'var(--color-text)' }}>
-                  Score (0-10)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="10"
-                  step="0.1"
-                  value={evalData.score}
-                  onChange={(e) => setEvalData({ ...evalData, score: e.target.value })}
-                  required
-                />
-              </div>
+              {/* Only Judges can Score */}
+              {isJudgeForProject() && (
+                <div style={{ marginBottom: 'var(--space-md)' }}>
+                  <label style={{ display: 'block', marginBottom: 'var(--space-xs)', color: 'var(--color-text)' }}>
+                    Score (0-10)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    value={evalData.score}
+                    onChange={(e) => setEvalData({ ...evalData, score: e.target.value })}
+                    required
+                  />
+                </div>
+              )}
               <div style={{ marginBottom: 'var(--space-lg)' }}>
                 <label style={{ display: 'block', marginBottom: 'var(--space-xs)', color: 'var(--color-text)' }}>
                   Feedback

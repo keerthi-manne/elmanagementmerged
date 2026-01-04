@@ -13,7 +13,7 @@ import axios from 'axios';
 const API_BASE = 'http://localhost:5000';
 
 function AdminDashboard() {
-  const { authToken } = useAuth();
+  const { authToken, userRole } = useAuth();
 
   // State
   const [activeTab, setActiveTab] = useState('analytics');
@@ -49,6 +49,24 @@ function AdminDashboard() {
   const [assignments, setAssignments] = useState([]);
   const [selectedFacultyId, setSelectedFacultyId] = useState('');
   const [selectedThemeId, setSelectedThemeId] = useState('');
+
+  // New Management Form states
+  const [userForm, setUserForm] = useState({
+    user_id: '',
+    name: '',
+    email: '',
+    password: '',
+    role: 'Student',
+    dept: '',
+    semester: ''
+  });
+  const [themeForm, setThemeForm] = useState({
+    ThemeName: '',
+    Description: '',
+    MaxMentors: 5
+  });
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [creatingTheme, setCreatingTheme] = useState(false);
 
   const loadAnalytics = useCallback(async () => {
     if (!authToken) return;
@@ -216,7 +234,6 @@ function AdminDashboard() {
   useEffect(() => {
     if (!authToken) return;
     loadAnalytics();
-    loadProjects();
     loadThemes();
     loadFaculties();
     loadAssignments();
@@ -225,9 +242,11 @@ function AdminDashboard() {
     loadProjectJudgeMapping();
     loadDetailedProjects();
     loadDetailedFaculty();
-  }, [authToken, loadAnalytics, loadProjects, loadThemes, loadFaculties, loadAssignments,
+    loadInsights();
+    loadSubmissions();
+  }, [authToken, loadAnalytics, loadThemes, loadFaculties, loadAssignments,
     loadThemeDistribution, loadStudentMentorMapping, loadProjectJudgeMapping,
-    loadDetailedProjects, loadDetailedFaculty]);
+    loadDetailedProjects, loadDetailedFaculty, loadInsights, loadSubmissions]);
 
   const handleAutoAssign = async () => {
     setAutoAssignLoading(true);
@@ -275,6 +294,24 @@ function AdminDashboard() {
     }
   };
 
+  const handleUnassign = async (facultyId) => {
+    if (!window.confirm('Are you sure you want to unassign this faculty?')) return;
+    try {
+      await axios.post(
+        `${API_BASE}/admin/unassign_faculty_theme`,
+        { FacultyUserID: facultyId },
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+      setMessage('✅ Faculty unassigned successfully');
+      await loadAssignments();
+      await loadFaculties();
+      await loadAnalytics();
+      await loadThemeDistribution();
+    } catch (err) {
+      setMessage(`❌ ${err.response?.data?.error || 'Unassign failed'}`);
+    }
+  };
+
   const handleApprove = async (projectId) => {
     try {
       await approveProject(authToken, projectId);
@@ -310,6 +347,58 @@ function AdminDashboard() {
       setMessage('✅ CSV downloaded successfully');
     } catch (err) {
       setMessage('❌ Failed to export CSV');
+    }
+  };
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    setCreatingUser(true);
+    setMessage('');
+    try {
+      await axios.post(`${API_BASE}/auth/create_user`, {
+        ...userForm,
+        Dept: userForm.dept,
+        Semester: userForm.semester
+      }, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      setMessage('✅ User created successfully!');
+      setUserForm({
+        user_id: '',
+        name: '',
+        email: '',
+        password: '',
+        role: 'Student',
+        dept: '',
+        semester: ''
+      });
+      loadFaculties(); // Refresh faculty list if needed
+    } catch (err) {
+      setMessage(`❌ ${err.response?.data?.error || 'User creation failed'}`);
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
+  const handleCreateTheme = async (e) => {
+    e.preventDefault();
+    setCreatingTheme(true);
+    setMessage('');
+    try {
+      await axios.post(`${API_BASE}/themes`, themeForm, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      setMessage('✅ Theme created successfully!');
+      setThemeForm({
+        ThemeName: '',
+        Description: '',
+        MaxMentors: 5
+      });
+      loadThemes(); // Refresh themes list
+    } catch (err) {
+      setMessage(`❌ ${err.response?.data?.error || 'Theme creation failed'}`);
+    } finally {
+      setCreatingTheme(false);
     }
   };
 
@@ -382,7 +471,7 @@ function AdminDashboard() {
           borderBottom: `2px solid var(--color-border)`,
           flexWrap: 'wrap',
         }}>
-          {['insights', 'analytics', 'assignments', 'projects', 'mappings', 'faculty'].map(tab => (
+          {['insights', 'analytics', 'assignments', 'projects', 'mappings', 'faculty', 'management'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -464,7 +553,7 @@ function AdminDashboard() {
                   <option value="">Select Submission to Check</option>
                   {submissions.map(s => (
                     <option key={s.submission_id} value={s.submission_id}>
-                      {s.is_url ? '🔗' : '📄'} {s.project_title} - {s.content.substring(0, 60)}... ({s.submitted_at})
+                      {s.is_url ? '🔗' : '📄'} {s.project_title} ({s.student_name}) - {s.content.substring(0, 30)}...
                     </option>
                   ))}
                 </select>
@@ -476,6 +565,7 @@ function AdminDashboard() {
                   {checkingPlagiarism ? 'Checking...' : 'Check Plagiarism'}
                 </button>
               </div>
+
 
               {plagiarismResult && (
                 <div>
@@ -900,6 +990,7 @@ function AdminDashboard() {
                     <tr>
                       <th>Faculty</th>
                       <th>Theme</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -908,6 +999,20 @@ function AdminDashboard() {
                         <td>{a.FacultyName}</td>
                         <td>
                           <span className="badge badge-primary">{a.ThemeName}</span>
+                        </td>
+                        <td>
+                          <button
+                            onClick={() => handleUnassign(a.FacultyUserID)}
+                            className="btn"
+                            style={{
+                              padding: 'var(--space-xs) var(--space-sm)',
+                              background: 'var(--color-error)',
+                              fontSize: '0.75rem',
+                              color: 'white'
+                            }}
+                          >
+                            🗑️ Remove
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -1162,6 +1267,141 @@ function AdminDashboard() {
                     No faculty found matching your search
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Management Tab */}
+        {activeTab === 'management' && (
+          <div className="fade-in-up">
+            <div className="grid grid-2">
+              {/* Create User Form */}
+              <div className="glass-card" style={{ padding: 'var(--space-xl)' }}>
+                <h3 style={{ marginBottom: 'var(--space-lg)', color: 'var(--color-text)' }}>
+                  👤 Create New User
+                </h3>
+                <form onSubmit={handleCreateUser}>
+                  <div style={{ marginBottom: 'var(--space-md)' }}>
+                    <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>User ID (USN/ID)</label>
+                    <input
+                      type="text"
+                      value={userForm.user_id}
+                      onChange={(e) => setUserForm({ ...userForm, user_id: e.target.value })}
+                      placeholder="e.g., 1RV21CS001"
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-2" style={{ marginBottom: 'var(--space-md)' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>Full Name</label>
+                      <input
+                        type="text"
+                        value={userForm.name}
+                        onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>Email</label>
+                      <input
+                        type="email"
+                        value={userForm.email}
+                        onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-2" style={{ marginBottom: 'var(--space-md)' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>Password</label>
+                      <input
+                        type="password"
+                        value={userForm.password}
+                        onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>Role</label>
+                      <select
+                        value={userForm.role}
+                        onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
+                      >
+                        <option value="Student">Student</option>
+                        <option value="Faculty">Faculty</option>
+                        <option value="Admin">Admin</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-2" style={{ marginBottom: 'var(--space-lg)' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>Department</label>
+                      <input
+                        type="text"
+                        value={userForm.dept}
+                        onChange={(e) => setUserForm({ ...userForm, dept: e.target.value })}
+                        placeholder="e.g., CS"
+                        required
+                      />
+                    </div>
+                    {userForm.role === 'Student' && (
+                      <div>
+                        <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>Semester</label>
+                        <input
+                          type="number"
+                          value={userForm.semester}
+                          onChange={(e) => setUserForm({ ...userForm, semester: e.target.value })}
+                          required
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <button type="submit" disabled={creatingUser} className="btn btn-primary" style={{ width: '100%' }}>
+                    {creatingUser ? 'Creating...' : 'Create User'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Create Theme Form */}
+              <div className="glass-card" style={{ padding: 'var(--space-xl)' }}>
+                <h3 style={{ marginBottom: 'var(--space-lg)', color: 'var(--color-text)' }}>
+                  🎯 Create New Theme
+                </h3>
+                <form onSubmit={handleCreateTheme}>
+                  <div style={{ marginBottom: 'var(--space-md)' }}>
+                    <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>Theme Name</label>
+                    <input
+                      type="text"
+                      value={themeForm.ThemeName}
+                      onChange={(e) => setThemeForm({ ...themeForm, ThemeName: e.target.value })}
+                      placeholder="e.g., Blockchain Applications"
+                      required
+                    />
+                  </div>
+                  <div style={{ marginBottom: 'var(--space-md)' }}>
+                    <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>Description</label>
+                    <textarea
+                      value={themeForm.Description}
+                      onChange={(e) => setThemeForm({ ...themeForm, Description: e.target.value })}
+                      rows={4}
+                      placeholder="Describe the theme scope..."
+                      required
+                    />
+                  </div>
+                  <div style={{ marginBottom: 'var(--space-lg)' }}>
+                    <label style={{ display: 'block', marginBottom: 'var(--space-xs)' }}>Max Mentors</label>
+                    <input
+                      type="number"
+                      value={themeForm.MaxMentors}
+                      onChange={(e) => setThemeForm({ ...themeForm, MaxMentors: parseInt(e.target.value) })}
+                      required
+                    />
+                  </div>
+                  <button type="submit" disabled={creatingTheme} className="btn btn-accent" style={{ width: '100%' }}>
+                    {creatingTheme ? 'Creating...' : 'Create Theme'}
+                  </button>
+                </form>
               </div>
             </div>
           </div>
